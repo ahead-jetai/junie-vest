@@ -1,0 +1,123 @@
+{
+  "responses": {
+    "budgeting": [
+      {
+        "keywords": [
+          "budget",
+          "budgeting",
+          "expenses",
+          "spending",
+          "money management"
+        ],
+        "response": "Great question about budgeting! I recommend following the 50/30/20 rule: allocate 50% of your income to needs (rent, utilities, groceries), 30% to wants (entertainment, dining out), and 20% to savings and debt repayment. Start by tracking your expenses for a month to see where your money goes, then adjust accordingly."
+      },
+      {
+        "keywords": [
+          "emergency fund",
+          "emergency",
+          "rainy day"
+        ],
+        "response": "An emergency fund is crucial for financial stability! Aim to save 3-6 months of living expenses in a high-yield savings account. Start small - even $500 can help with unexpected expenses. Build it gradually by setting aside a portion of each paycheck until you reach your goal."
+      },
+      {
+        "keywords": [
+          "debt",
+          "credit card",
+          "loan",
+          "pay off"
+        ],
+        "response": "Tackling debt is a smart financial move! Consider the debt avalanche method (pay minimums on all debts, then focus extra payments on the highest interest rate debt) or the debt snowball method (pay off smallest balances first for psychological wins). Also, try to avoid taking on new debt while paying off existing balances."
+      }
+    ],
+    "saving": [
+      {
+        "keywords": [
+          "save",
+          "saving",
+          "savings account",
+          "high yield"
+        ],
+        "response": "Saving money is the foundation of financial health! Look for high-yield savings accounts that offer competitive interest rates (currently around 4-5% APY). Automate your savings by setting up automatic transfers from checking to savings. Even saving $50-100 per month can build substantial wealth over time."
+      },
+      {
+        "keywords": [
+          "retirement",
+          "401k",
+          "ira",
+          "roth"
+        ],
+        "response": "Retirement planning is essential! If your employer offers a 401(k) match, contribute at least enough to get the full match - it's free money! Consider opening a Roth IRA for tax-free growth. The general rule is to save 10-15% of your income for retirement, but start with what you can afford and increase gradually."
+      },
+      {
+        "keywords": [
+          "house",
+          "home",
+          "down payment",
+          "mortgage"
+        ],
+        "response": "Saving for a home is a major financial goal! Typically, you'll need 10-20% for a down payment, plus closing costs (2-5% of home price). Consider opening a separate savings account specifically for your house fund. Look into first-time homebuyer programs that might offer assistance or lower down payment requirements."
+      }
+    ],
+    "investing": [
+      {
+        "keywords": [
+          "invest",
+          "investing",
+          "stocks",
+          "market",
+          "portfolio"
+        ],
+        "response": "Investing is key to building long-term wealth! For beginners, I recommend starting with low-cost index funds or ETFs that track the S&P 500. These provide instant diversification and historically good returns. Dollar-cost averaging (investing a fixed amount regularly) can help reduce the impact of market volatility."
+      },
+      {
+        "keywords": [
+          "etf",
+          "index fund",
+          "mutual fund",
+          "diversification"
+        ],
+        "response": "Index funds and ETFs are excellent choices for most investors! They offer broad market exposure, low fees, and instant diversification. Popular options include total stock market funds, S&P 500 funds, and target-date funds. Target-date funds automatically adjust your asset allocation as you approach retirement."
+      },
+      {
+        "keywords": [
+          "risk",
+          "risk tolerance",
+          "conservative",
+          "aggressive"
+        ],
+        "response": "Understanding your risk tolerance is crucial for investing success! Generally, younger investors can take more risk since they have time to recover from market downturns. A common rule is to subtract your age from 100 to determine your stock allocation percentage. Conservative investors might prefer bonds and dividend stocks, while aggressive investors might favor growth stocks and emerging markets."
+      },
+      {
+        "keywords": [
+          "crypto",
+          "cryptocurrency",
+          "bitcoin",
+          "blockchain"
+        ],
+        "response": "Cryptocurrency can be part of a diversified portfolio, but it's highly volatile and speculative. If you're interested, limit crypto to 5-10% of your total investment portfolio. Never invest more than you can afford to lose. Focus on established cryptocurrencies like Bitcoin and Ethereum, and consider dollar-cost averaging to reduce volatility impact."
+      }
+    ],
+    "general": [
+      {
+        "keywords": [
+          "help",
+          "advice",
+          "financial",
+          "money",
+          "wealth"
+        ],
+        "response": "I'm here to help with your financial questions! I can provide guidance on budgeting, saving strategies, investment basics, debt management, and retirement planning. What specific area of personal finance would you like to explore today?"
+      },
+      {
+        "keywords": [
+          "start",
+          "beginning",
+          "beginner",
+          "new"
+        ],
+        "response": "Starting your financial journey is exciting! Here's a simple roadmap: 1) Create a budget and track expenses, 2) Build a small emergency fund ($500-1000), 3) Pay off high-interest debt, 4) Build a full emergency fund (3-6 months expenses), 5) Start investing for retirement, 6) Consider other goals like homeownership. Take it one step at a time!"
+      }
+    ]
+  },
+  "defaultResponse": "That's an interesting question! While I specialize in personal finance topics like budgeting, saving, and investing, I'd be happy to help if you have any questions about managing your money, building wealth, or planning for your financial future. What financial goals are you working toward?"
+}
