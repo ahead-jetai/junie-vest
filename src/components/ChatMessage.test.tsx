@@ -1,6 +1,7 @@
 import {render, screen, within} from '@testing-library/react';
 import {describe, expect, it} from 'vitest';
 import ChatMessage from './ChatMessage';
+import {chatService} from '../services/chatService';
 
 const renderMessage = (text: string, isUser = false) => render(
     <ChatMessage message={{id: 'message-1', text, isUser, timestamp: new Date('2026-09-16T12:00:00Z')}}/>
@@ -89,5 +90,16 @@ Still readable.`);
 
         expect(screen.getByText('Happy to help!').tagName).toBe('P');
         expect(container.querySelector('.message-timestamp')).toHaveTextContent(/\d+:\d+/);
+    });
+
+    it('renders the welcome message as formatted Markdown paragraphs', () => {
+        const {container} = render(<ChatMessage message={chatService.getWelcomeMessage()}/>);
+
+        const paragraphs = container.querySelectorAll('.message-markdown > p');
+        expect(paragraphs).toHaveLength(3);
+        expect(paragraphs[0]).toHaveTextContent("Hey there! 👋 I'm Junie, your personal finance sidekick.");
+        expect(screen.getByText('budgeting, investing, saving strategies').tagName).toBe('STRONG');
+        expect(screen.getByText("What's on your mind?").tagName).toBe('STRONG');
+        expect(container.textContent).not.toContain('*');
     });
 });
