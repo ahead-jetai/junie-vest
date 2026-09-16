@@ -2,11 +2,53 @@ import {render, screen, within} from '@testing-library/react';
 import {describe, expect, it} from 'vitest';
 import ChatMessage from './ChatMessage';
 
+const unstructuredAnswer = [
+    'Start with a clear picture of your monthly income and spending so you can choose a realistic next step.',
+    'Write down your regular bills, flexible expenses, and the amount you want to set aside for future goals.',
+    'Keep a small cushion for unexpected costs instead of committing every dollar before the month begins.',
+    'If an account shows a 3.5% rate, compare its fees and access rules before deciding whether it suits your needs.',
+    'Review the plan at the end of the month and adjust the categories that did not match your actual spending.',
+    'Choose one manageable action today, then revisit your progress when your next paycheck arrives.'
+].join(' ');
+
 const renderMessage = (text: string, isUser = false) => render(
     <ChatMessage message={{id: 'message-1', text, isUser, timestamp: new Date('2026-09-16T12:00:00Z')}}/>
 );
 
 describe('ChatMessage', () => {
+    it('breaks a long unformatted answer into readable paragraphs without changing its text', () => {
+        const {container} = renderMessage(unstructuredAnswer);
+
+        const paragraphs = [...container.querySelectorAll('.message-markdown > p')];
+        expect(paragraphs).toHaveLength(3);
+        expect(paragraphs.map(paragraph => paragraph.textContent).join('')).toBe(unstructuredAnswer);
+        expect(paragraphs[1]).toHaveTextContent('3.5% rate');
+    });
+
+    it('preserves emphasis, links, and inline code when breaking up long prose', () => {
+        const {container} = renderMessage(unstructuredAnswer
+            .replace('clear picture', '**clear picture**')
+            .replace('3.5% rate', '[3.5% rate](https://example.com/rates?value=3.5)')
+            .replace('one manageable action', '`one manageable action`'));
+
+        const paragraphs = [...container.querySelectorAll('.message-markdown > p')];
+        expect(paragraphs).toHaveLength(3);
+        expect(paragraphs.map(paragraph => paragraph.textContent).join('')).toBe(unstructuredAnswer);
+        expect(screen.getByText('clear picture').tagName).toBe('STRONG');
+        expect(screen.getByRole('link', {name: '3.5% rate'})).toHaveAttribute('href', 'https://example.com/rates?value=3.5');
+        expect(screen.getByText('one manageable action').tagName).toBe('CODE');
+    });
+
+    it('leaves long list items, quotations, and code blocks intact', () => {
+        const {container} = renderMessage('- ' + unstructuredAnswer + '\n\n> ' + unstructuredAnswer + '\n\n```text\n' + unstructuredAnswer + '\n```');
+
+        expect(screen.getAllByRole('listitem')).toHaveLength(1);
+        expect(screen.getByRole('listitem').textContent).toBe(unstructuredAnswer);
+        expect(container.querySelectorAll('blockquote > p')).toHaveLength(1);
+        expect(container.querySelector('blockquote > p')?.textContent).toBe(unstructuredAnswer);
+        expect(screen.getByLabelText('Code block').textContent).toBe(unstructuredAnswer + '\n');
+    });
+
     it('renders assistant answers as paragraphs, headings, emphasis, and nested lists', () => {
         renderMessage(`Start with a **clear goal**.
 
@@ -76,7 +118,7 @@ Still readable.`);
     });
 
     it('keeps user messages literal, including Markdown and newlines', () => {
-        const text = '## My question\n\nExplain **this** and <b>that</b>.';
+        const text = '## My question\n\nExplain **this** and <b>that</b>. ' + unstructuredAnswer;
         const {container} = renderMessage(text, true);
 
         expect(container.querySelector('.message-plain-text')?.textContent).toBe(text);
