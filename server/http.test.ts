@@ -25,6 +25,16 @@ const post = (url: string, body: string = JSON.stringify(requestFixture), header
 });
 
 describe('server API boundary', () => {
+    it('validates reasoning-model settings without including environment values in errors', () => {
+        expect(configFromEnv({})).toMatchObject({modelTimeoutMs: 180000, maxCompletionTokens: 12000, reasoningEffort: 'low'});
+        expect(configFromEnv({OPENROUTER_TIMEOUT_MS: '240000', OPENROUTER_MAX_TOKENS: '16000', OPENROUTER_REASONING_EFFORT: 'provider'}))
+            .toMatchObject({modelTimeoutMs: 240000, maxCompletionTokens: 16000, reasoningEffort: 'provider'});
+        expect(() => configFromEnv({OPENROUTER_TIMEOUT_MS: 'NaN'})).toThrow('must be an integer');
+        expect(() => configFromEnv({OPENROUTER_TIMEOUT_MS: '0'})).toThrow('must be an integer');
+        expect(() => configFromEnv({OPENROUTER_MAX_TOKENS: '1000000'})).toThrow('must be an integer');
+        expect(() => configFromEnv({OPENROUTER_REASONING_EFFORT: 'unsupported'})).toThrow('must be low, medium, high, or provider');
+    });
+
     it('serves health without leaking credentials and ignores legacy browser key names', async () => {
         const {url} = await start();
         const health = await fetch(`${url}/api/health`);

@@ -20,6 +20,9 @@ npm run dev
 | `OPENROUTER_API_KEY` | Server-side model access |
 | `OPENROUTER_MODEL` | An OpenRouter model ID supporting JSON object responses; choose a capable reasoning model in your account |
 | `TAVILY_API_KEY` | Fresh web searches for every substantive answer |
+| `OPENROUTER_TIMEOUT_MS` | Model call deadline, including response-body reading; defaults to `180000`, range `1000`–`300000` |
+| `OPENROUTER_MAX_TOKENS` | Combined reasoning + final-answer token budget; defaults to `12000`, range `1000`–`32000` |
+| `OPENROUTER_REASONING_EFFORT` | `low` (default), `medium`, `high`, or `provider` to omit the reasoning override |
 | `PUBLIC_ORIGIN` | Optional exact external origin, such as `https://invest.example`, behind a reverse proxy |
 | `PORT` / `HOST` | Production listener; defaults to `3000` / `0.0.0.0` |
 
@@ -37,7 +40,15 @@ The UI reports setup status. Missing credentials, unavailable search, empty resu
 4. **Review.** A separate model pass checks whether citations support claims, dates are used honestly, the answer addresses the requested action, and the strategy accounts for material risks. It may request one revision, then rejects a brief that still fails. This is an additional model check, not a guarantee of factual accuracy.
 5. **Continue.** Structured clarification answers and complete briefs carry into subsequent turns. Failed/cancelled requests are retryable without duplicating user messages or polluting model history with error text.
 
-Each JSON generation has at most one format/validation repair. There are at most 3 searches and 10 model requests per turn, including all repairs and the review revision. The HTTP request has a 120-second deadline, each provider call a 45-second timeout, and browser cancellation propagates upstream. There is no background or recursive agent loop.
+Each JSON generation has at most one format/validation repair. There are at most 3 searches and 10 model requests per turn, including all repairs and the review revision. The complete turn has a 10-minute deadline; model calls default to 3 minutes each, and searches retain their 45-second deadline. The browser waits 10 seconds beyond the server deadline so it can display the server's error. Cancellation propagates upstream. There is no background or recursive agent loop, and a timed-out generation is not automatically retried.
+
+### Reasoning models and response errors
+
+Reasoning models can spend more than 45 seconds generating reasoning before returning any final JSON. The older harness cancelled these calls at 45 seconds and incorrectly reported an aborted response-body read as “unreadable response.” The current transport distinguishes provider deadlines, malformed JSON, missing final answers, exhausted completion budgets (`finish_reason: length`), and interrupted connections. It requests `stream: false`, but can also assemble final-answer deltas if a provider returns SSE; reasoning deltas are never rendered as answers.
+
+For a model such as `deepseek/deepseek-v4-flash-20260731`, start with the defaults: `OPENROUTER_TIMEOUT_MS=180000`, `OPENROUTER_MAX_TOKENS=12000`, and `OPENROUTER_REASONING_EFFORT=low`. Reasoning effort support depends on the model/provider; use `provider` to keep its default behavior. Increasing the token budget raises the potential cost ceiling. Changing these server settings requires a restart. Ensure a deployment's reverse proxy permits the full turn duration; a shorter gateway timeout can still interrupt an otherwise healthy model call.
+
+Opening `/api/chat` directly in a browser sends GET and correctly returns `405 method_not_allowed`. Chat submission uses POST with JSON. If a submitted chat request gets this error, inspect redirects and proxy routing for a POST-to-GET conversion. Use `/api/health` for a browser-readable setup check.
 
 Research uses web extracts, **not an exchange quote feed**. Retrieval today does not prove an article or price is current. Missing or conflicting price/access evidence must be surfaced as a limitation; the agent should withhold a buy call until it can support it. No trades are executed.
 

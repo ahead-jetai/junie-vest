@@ -1,18 +1,44 @@
-import {render, screen, waitFor, within, fireEvent} from '@testing-library/react';
+import {render, screen, waitFor, within, fireEvent, act} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import ChatInterface from './ChatInterface';
 import {clarificationFixture, responseFixture} from '../test/fixtures';
+import {AGENT_TIMEOUT_MS} from '../shared/timeouts';
 
 const mockFetch = vi.fn();
 beforeEach(() => {
     mockFetch.mockReset().mockImplementation((url: string) => Promise.resolve(new Response(JSON.stringify(url === '/api/health' ? {configured: true} : responseFixture))));
     vi.stubGlobal('fetch', mockFetch);
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 const chatCalls = () => mockFetch.mock.calls.filter(([url]) => url === '/api/chat');
 
 describe('research desk conversation', () => {
+    it('keeps a slow reasoning request alive long enough to show the server timeout error', async () => {
+        vi.useFakeTimers();
+        let finish: (response: Response) => void = () => {};
+        mockFetch.mockImplementation((url: string, options?: RequestInit) => url === '/api/health'
+            ? Promise.resolve(new Response('{"configured":true}'))
+            : new Promise<Response>((resolve, reject) => {
+                finish = resolve;
+                options?.signal?.addEventListener('abort', () => reject(new Error('aborted')), {once: true});
+            }));
+        render(<ChatInterface/>);
+        fireEvent.change(screen.getByRole('textbox', {name: 'Your investment question'}), {target: {value: 'Should I invest today?'}});
+        fireEvent.click(screen.getByRole('button', {name: 'Send message'}));
+        const signal = chatCalls()[0][1].signal as AbortSignal;
+        await act(async () => { await vi.advanceTimersByTimeAsync(125000); });
+        expect(signal.aborted).toBe(false);
+        expect(screen.getByRole('status')).toHaveTextContent('Preparing your brief');
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(AGENT_TIMEOUT_MS - 125000);
+            finish(new Response('{"error":"Research took too long. Please retry.","code":"timeout"}', {status: 504}));
+        });
+        expect(signal.aborted).toBe(false);
+        expect(screen.getByRole('alert')).toHaveTextContent('Research took too long. Please retry.');
+        expect(screen.getByRole('button', {name: /Retry brief/})).toBeEnabled();
+    });
+
     it('displays long API prose as readable paragraphs while keeping the structured brief', async () => {
         const responseText = [
             'Start by writing down your monthly income and the expenses that you already know you will need to cover.',

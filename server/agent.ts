@@ -4,6 +4,7 @@ import {
     type AgentRequest, type AgentResponse, type Source,
 } from '../src/shared/agent.ts';
 import {analystPrompt, plannerPrompt, reviewPrompt} from './prompts.ts';
+import {DEFAULT_MODEL_TIMEOUT_MS, SEARCH_TIMEOUT_MS} from '../src/shared/timeouts.ts';
 
 export class AgentError extends Error {
     status: number;
@@ -19,6 +20,9 @@ export interface AgentConfig {
     openRouterKey: string;
     searchKey: string;
     model: string;
+    modelTimeoutMs?: number;
+    maxCompletionTokens?: number;
+    reasoningEffort?: 'low' | 'medium' | 'high' | 'provider';
 }
 export interface Dependencies {
     fetch: typeof fetch;
@@ -48,31 +52,71 @@ const searchResponseSchema = z.object({
     })).max(50),
 });
 type Evidence = Source & {content: string};
+const streamFrameSchema = z.object({
+    error: z.unknown().optional(),
+    choices: z.array(z.object({
+        index: z.number().optional(),
+        delta: z.object({content: z.string().nullable().optional()}).optional(),
+        finish_reason: z.string().nullable().optional(),
+    })).optional(),
+});
+
+async function readProviderResponse(response: Response, service: 'model' | 'research'): Promise<unknown> {
+    if (service !== 'model' || !response.headers.get('content-type')?.includes('text/event-stream')) {
+        return response.json();
+    }
+    // Request JSON explicitly, but tolerate providers that still return SSE. Only final
+    // answer deltas are assembled; private reasoning never becomes an assistant answer.
+    const text = await response.text();
+    if (text.length > 16_000_000) throw new AgentError(502, 'model_invalid', 'The model returned an oversized response. Please retry.');
+    let content = '';
+    let finishReason: string | null = null;
+    for (const event of text.split(/\r?\n\r?\n/)) {
+        const data = event.split(/\r?\n/).filter(line => line.startsWith('data:'))
+            .map(line => line.slice(5).trimStart()).join('\n');
+        if (!data) continue; // SSE comments/keepalives are not JSON.
+        if (data.trim() === '[DONE]') break;
+        const frame = streamFrameSchema.safeParse(JSON.parse(data));
+        if (!frame.success) throw new AgentError(502, 'model_invalid', 'The model returned an unreadable stream. Please retry.');
+        if (frame.data.error) return {error: true};
+        for (const choice of frame.data.choices || []) {
+            if ((choice.index ?? 0) !== 0) continue;
+            content += choice.delta?.content || '';
+            finishReason = choice.finish_reason || finishReason;
+        }
+    }
+    if (!finishReason) throw new AgentError(502, 'model_incomplete', 'The model connection ended before its answer was complete. Please retry.');
+    return {choices: [{message: {content}, finish_reason: finishReason}]};
+}
 
 async function postJson(url: string, body: unknown, headers: Record<string, string>, signal: AbortSignal,
-    deps: Dependencies, service: 'model' | 'research'): Promise<unknown> {
-    let response: Response;
+    deps: Dependencies, service: 'model' | 'research', timeoutMs = SEARCH_TIMEOUT_MS): Promise<unknown> {
+    const deadline = new AbortController();
+    const timer = setTimeout(() => deadline.abort(), timeoutMs);
     try {
-        response = await deps.fetch(url, {
+        const response = await deps.fetch(url, {
             method: 'POST', headers: {'Content-Type': 'application/json', ...headers},
-            body: JSON.stringify(body), signal: AbortSignal.any([signal, AbortSignal.timeout(45000)]),
+            body: JSON.stringify(body), signal: AbortSignal.any([signal, deadline.signal]),
         });
-    } catch {
-        if (signal.aborted) throw signal.reason;
-        throw new AgentError(502, `${service}_unavailable`, service === 'research'
+        if (!response.ok) throw new AgentError(502, `${service}_unavailable`, service === 'research'
             ? 'Current research is unavailable. No investment call was made. Please retry.'
             : 'The research desk could not complete this brief. Please retry.');
-    }
-    if (!response.ok) {
+        // The deadline covers both receiving headers and reading the complete body.
+        return await readProviderResponse(response, service);
+    } catch (error) {
+        if (signal.aborted) throw signal.reason;
+        if (deadline.signal.aborted) throw new AgentError(504, `${service}_timeout`, service === 'model'
+            ? 'The model did not finish its answer in time. Please retry or narrow your question.'
+            : 'Current research took too long. No investment call was made. Please retry.');
+        if (error instanceof AgentError) throw error;
+        if (error instanceof SyntaxError) throw new AgentError(502, `${service}_invalid`, 'The research desk returned an unreadable response. Please retry.');
         // Provider bodies can contain secrets and private prompts; never return or log them.
         throw new AgentError(502, `${service}_unavailable`, service === 'research'
             ? 'Current research is unavailable. No investment call was made. Please retry.'
             : 'The research desk could not complete this brief. Please retry.');
-    }
-    try {
-        return await response.json();
-    } catch {
-        throw new AgentError(502, `${service}_invalid`, 'The research desk returned an unreadable response. Please retry.');
+    } finally {
+        clearTimeout(timer);
+        deadline.abort(); // Also stop an unread error body rather than leaving a connection open.
     }
 }
 
@@ -84,15 +128,28 @@ async function modelJson<T>(prompt: string, input: unknown, schema: z.ZodType<T>
     ];
     // One bounded repair, including semantic validation errors; no unbounded agent loops.
     for (let attempt = 0; attempt < 2; attempt++) {
+        const effort = config.reasoningEffort ?? 'low';
         const raw = await postJson('https://openrouter.ai/api/v1/chat/completions', {
-            model: config.model, messages, temperature: 0.3, max_tokens: 5000,
+            model: config.model, messages, temperature: 0.3, stream: false,
+            // Reasoning models share this budget between reasoning and final answer tokens.
+            max_tokens: config.maxCompletionTokens ?? 12000,
+            ...(effort === 'provider' ? {} : {reasoning: {effort}}),
             response_format: {type: 'json_object'},
-        }, {Authorization: `Bearer ${config.openRouterKey}`, 'X-Title': 'JunieVest Research Desk'}, signal, deps, 'model');
+        }, {Authorization: `Bearer ${config.openRouterKey}`, 'X-Title': 'JunieVest Research Desk', Accept: 'application/json'},
+        signal, deps, 'model', config.modelTimeoutMs ?? DEFAULT_MODEL_TIMEOUT_MS);
+        if (typeof raw === 'object' && raw !== null && 'error' in raw && raw.error) {
+            throw new AgentError(502, 'model_provider_error', 'The model provider could not finish this response. Please retry.');
+        }
         const envelope = z.object({choices: z.array(z.object({
-            message: z.object({content: z.string().min(1).max(24000)}),
+            message: z.object({content: z.string().max(24000).nullish()}),
+            finish_reason: z.string().nullish(),
         })).min(1)}).safeParse(raw);
         if (!envelope.success) throw new AgentError(502, 'invalid_response', 'The research desk returned an incomplete brief. Please retry.');
+        if (envelope.data.choices[0].finish_reason === 'length') {
+            throw new AgentError(502, 'model_output_limit', 'The model used its response budget before finishing the brief. Try a narrower question.');
+        }
         const content = envelope.data.choices[0].message.content;
+        if (!content?.trim()) throw new AgentError(502, 'model_empty_response', 'The model returned no final answer. Please retry.');
         let problem = 'Return valid JSON only, without a code fence.';
         try {
             const parsed = schema.safeParse(JSON.parse(content));

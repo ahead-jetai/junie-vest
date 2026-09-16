@@ -4,6 +4,7 @@ import {join} from 'node:path';
 import {runAgent} from './agent.ts';
 import {configFromEnv} from './http.ts';
 import type {AgentRequest} from '../src/shared/agent.ts';
+import {AGENT_TIMEOUT_MS} from '../src/shared/timeouts.ts';
 
 const config = configFromEnv(process.env);
 if (!config.openRouterKey || !config.searchKey || !config.model) {
@@ -26,7 +27,7 @@ let failed = 0;
 const output = [];
 for (const example of cases) {
     try {
-        const response = await runAgent(example.request, config, AbortSignal.timeout(120000));
+        const response = await runAgent(example.request, config, AbortSignal.timeout(AGENT_TIMEOUT_MS));
         const passed = response.kind === example.kind;
         if (!passed) failed++;
         output.push({name: example.name, passed, response});

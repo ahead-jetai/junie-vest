@@ -1,6 +1,7 @@
 import {useState, useEffect, useRef} from 'react';
 import {type ChatMessage as ChatMessageType, chatService} from '../services/chatService';
 import type {AgentRequest, InvestorContext} from '../shared/agent';
+import {CLIENT_TIMEOUT_MS} from '../shared/timeouts';
 import ChatMessage from './ChatMessage';
 import {ArrowIcon, PlusIcon} from './Icons';
 import './ChatInterface.css';
@@ -53,7 +54,7 @@ export default function ChatInterface() {
         setIsLoading(true);
         setError('');
         setFailedRequest(null);
-        const timeout = setTimeout(() => controller.abort('timeout'), 125000);
+        const timeout = setTimeout(() => controller.abort('timeout'), CLIENT_TIMEOUT_MS);
         try {
             const response = await chatService.getBotResponse(request, controller.signal);
             if (currentGeneration === generation.current && !controller.signal.aborted) {
@@ -142,7 +143,7 @@ export default function ChatInterface() {
                 {messages.map((message, index) => <ChatMessage key={message.id} message={message} onFollowUp={send}
                     disabled={isLoading || index !== messages.length - 1}/>)}
                 {isLoading && <div className="research-progress" role="status"><span className="research-spinner"/>
-                    <div><strong>Preparing your brief</strong><p>Reading your context, then checking current evidence before making the call.</p></div>
+                    <div><strong>Preparing your brief</strong><p>Reading your context, then checking current evidence. Reasoning models can take a few minutes; you can stop at any time.</p></div>
                     <button onClick={() => activeRequest.current?.abort('cancelled')}>Stop</button>
                 </div>}
                 {error && <div className="request-error" role="alert"><p>{error}</p>

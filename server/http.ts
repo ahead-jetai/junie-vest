@@ -1,12 +1,29 @@
 import type {IncomingMessage, ServerResponse} from 'node:http';
 import {AgentError, runAgent, type AgentConfig} from './agent.ts';
 import type {AgentRequest} from '../src/shared/agent.ts';
+import {AGENT_TIMEOUT_MS, DEFAULT_MODEL_TIMEOUT_MS} from '../src/shared/timeouts.ts';
+
+function integerSetting(env: Record<string, string | undefined>, name: string, fallback: number, min: number, max: number): number {
+    if (!env[name]?.trim()) return fallback;
+    const value = Number(env[name]);
+    if (!Number.isSafeInteger(value) || value < min || value > max) {
+        throw new Error(`${name} must be an integer between ${min} and ${max}.`);
+    }
+    return value;
+}
 
 export function configFromEnv(env: Record<string, string | undefined>): AgentConfig {
+    const effort = env.OPENROUTER_REASONING_EFFORT?.trim() || 'low';
+    if (effort !== 'low' && effort !== 'medium' && effort !== 'high' && effort !== 'provider') {
+        throw new Error('OPENROUTER_REASONING_EFFORT must be low, medium, high, or provider.');
+    }
     return {
         openRouterKey: env.OPENROUTER_API_KEY || '',
         searchKey: env.TAVILY_API_KEY || '',
         model: env.OPENROUTER_MODEL || '',
+        modelTimeoutMs: integerSetting(env, 'OPENROUTER_TIMEOUT_MS', DEFAULT_MODEL_TIMEOUT_MS, 1000, 300000),
+        maxCompletionTokens: integerSetting(env, 'OPENROUTER_MAX_TOKENS', 12000, 1000, 32000),
+        reasoningEffort: effort,
     };
 }
 
@@ -94,7 +111,7 @@ export function createApiHandler(config: AgentConfig, options: {
         const timeout = setTimeout(() => {
             controller.abort();
             sendJson(res, 504, {error: 'Research took too long. Please retry.', code: 'timeout'});
-        }, 120000);
+        }, AGENT_TIMEOUT_MS);
         const onClose = () => controller.abort();
         res.on('close', onClose);
         try {
