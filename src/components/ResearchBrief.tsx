@@ -1,6 +1,14 @@
-import {useState} from 'react';
+import {useState, type ReactNode} from 'react';
 import type {AgentResponse} from '../shared/agent';
 import {ArrowIcon} from './Icons';
+import {splitReadableText} from './rehypeReadableParagraphs';
+
+function ReadableProse({text, className, children}: {text: string; className?: string; children?: ReactNode}) {
+    const paragraphs = splitReadableText(text);
+    return <>{paragraphs.map((paragraph, index) => <p className={className} key={index}>
+        {paragraph}{index === paragraphs.length - 1 && children}
+    </p>)}</>;
+}
 
 type Props = {
     response: AgentResponse;
@@ -15,7 +23,7 @@ export default function ResearchBrief({response, onFollowUp, disabled}: Props) {
         return <section className="clarification-card" aria-label="Clarifying questions">
             <div className="brief-eyebrow">LET’S SHARPEN THE BRIEF</div>
             <h2>{response.headline}</h2>
-            <p>{response.summary}</p>
+            <ReadableProse text={response.summary}/>
             <form onSubmit={event => {
                 event.preventDefault();
                 if (complete && !disabled) onFollowUp?.(response.questions.map(question =>
@@ -55,7 +63,7 @@ export default function ResearchBrief({response, onFollowUp, disabled}: Props) {
             <span className="confidence">{response.confidence} confidence</span>
         </div>
         <h2>{response.headline}</h2>
-        <p className="brief-summary">{response.summary}</p>
+        <ReadableProse className="brief-summary" text={response.summary}/>
         {response.evidence === 'limited' && <p className="evidence-note">Limited evidence · Read the gaps behind this call before acting.</p>}
         {response.assumptions.length > 0 && <div className="assumptions"><span>Working assumptions</span>
             <ul>{response.assumptions.map((assumption, index) => <li key={index}>{assumption}</li>)}</ul>
@@ -63,7 +71,7 @@ export default function ResearchBrief({response, onFollowUp, disabled}: Props) {
         <section className="brief-section">
             <h3><span>01</span> The thesis</h3>
             {response.reasons.map((reason, index) => <div className="brief-claim" key={index}>
-                <h4>{reason.title}</h4><p>{reason.detail} {sourceLinks(reason.sourceIds)}</p>
+                <h4>{reason.title}</h4><ReadableProse text={reason.detail}> {sourceLinks(reason.sourceIds)}</ReadableProse>
             </div>)}
         </section>
         <section className="brief-section strategy-section">
@@ -73,10 +81,10 @@ export default function ResearchBrief({response, onFollowUp, disabled}: Props) {
         <section className="brief-section">
             <h3><span>03</span> Pressure test</h3>
             {response.risks.map((risk, index) => <div className="brief-claim" key={index}>
-                <h4>{risk.title}</h4><p>{risk.detail} {sourceLinks(risk.sourceIds)}</p>
+                <h4>{risk.title}</h4><ReadableProse text={risk.detail}> {sourceLinks(risk.sourceIds)}</ReadableProse>
             </div>)}
         </section>
-        <div className="change-view"><span>What would change my mind</span><p>{response.changeMyMind}</p></div>
+        <div className="change-view"><span>What would change my mind</span><ReadableProse text={response.changeMyMind}/></div>
         <details className="sources-panel">
             <summary>{response.sources.length} sources <span>Researched {researched}</span></summary>
             <p className="source-note">Web research, not a live execution quote. Publication dates are shown when supplied by the source.</p>

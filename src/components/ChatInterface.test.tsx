@@ -13,6 +13,32 @@ afterEach(() => vi.unstubAllGlobals());
 const chatCalls = () => mockFetch.mock.calls.filter(([url]) => url === '/api/chat');
 
 describe('research desk conversation', () => {
+    it('displays long API prose as readable paragraphs while keeping the structured brief', async () => {
+        const responseText = [
+            'Start by writing down your monthly income and the expenses that you already know you will need to cover.',
+            'Include both the bills that stay the same and the purchases that tend to change from month to month.',
+            'Next, choose a savings target that leaves enough room for your everyday needs and a few unexpected costs.',
+            'An example target might be $125.50 each month, but the right amount depends on the rest of your budget.',
+            'Review the numbers after a month so you can see which estimates were useful and which need changing.',
+            'Keep the first version simple enough that you can maintain it and build on it as you learn more.',
+        ].join(' ');
+        mockFetch.mockImplementation((url: string) => Promise.resolve(new Response(JSON.stringify(
+            url === '/api/health' ? {configured: true} : {...responseFixture, summary: responseText},
+        ))));
+        const user = userEvent.setup();
+        render(<ChatInterface/>);
+        await user.type(screen.getByRole('textbox', {name: 'Your investment question'}), 'Help me plan my budget{Enter}');
+        const brief = await screen.findByRole('article', {name: 'Investment brief'});
+        const paragraphs = [...brief.querySelectorAll('.brief-summary')];
+        expect(paragraphs).toHaveLength(3);
+        expect(paragraphs.map(paragraph => paragraph.textContent).join('')).toBe(responseText);
+        expect(screen.getByText('Help me plan my budget')).toBeInTheDocument();
+        expect(chatCalls()).toHaveLength(1);
+        expect(JSON.parse(chatCalls()[0][1].body).messages).toEqual([
+            {role: 'user', content: 'Help me plan my budget'},
+        ]);
+    });
+
     it('recovers the connection indicator after a transient health check failure', async () => {
         const user = userEvent.setup();
         mockFetch.mockImplementation((url: string) => url === '/api/health' ? Promise.reject(new Error('offline'))

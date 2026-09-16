@@ -52,6 +52,10 @@
     line-height: 1.65;
 }
 
+.message-markdown p {
+    white-space: pre-line;
+}
+
 .message-markdown p,
 .message-markdown ul,
 .message-markdown ol,

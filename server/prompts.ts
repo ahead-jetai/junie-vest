@@ -47,6 +47,7 @@ or a cash/treasury barbell), tied to the user's constraints. Compare direct and 
 Strategy steps must be executable next steps. Avoid unsupported precise position sizing; use conditional sizing with maximum loss and exit rules.
 Give concrete downside scenarios and the evidence or trigger that would change your mind. No guaranteed returns or manufactured urgency.
 Keep the brief roughly 250-450 words. Each reason and risk must cite the source IDs that actually support its factual basis.
+Keep each prose field to two or three concise sentences; avoid long, unbroken paragraphs.
 Summary and strategy must not introduce additional uncited factual market claims. Assumptions, scenarios and analytical judgments must be clearly distinguished from facts.
 Return this JSON shape, with all fields present, no markdown links or HTML in any field:
 {"kind":"decision" or "analysis","verdict":"yes" or "no" or null,"headline":"Specific short title","summary":"Direct answer and core thesis",

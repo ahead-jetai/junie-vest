@@ -1,6 +1,7 @@
 import React from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeReadableParagraphs from './rehypeReadableParagraphs';
 import type {ChatMessage as ChatMessageType} from '../services/chatService';
 import './ChatMessage.css';
 import ResearchBrief from './ResearchBrief';
@@ -28,6 +29,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({message, onFollowUp, disabled}
                     {message.isUser ? message.text : message.response ? <ResearchBrief response={message.response} onFollowUp={onFollowUp} disabled={disabled}/> : (
                         <Markdown
                             remarkPlugins={[remarkGfm]}
+                            rehypePlugins={[rehypeReadableParagraphs]}
                             skipHtml
                             components={{
                                 a: ({href, title, children}) => (
