@@ -1,126 +1,80 @@
-# JunieVest - Personal Finance Assistant
+# JunieVest — The Research Desk
 
-JunieVest is an interactive chat-based financial assistant that provides personalized advice on budgeting, saving, investing, and other personal finance topics. The application features a friendly, conversational interface where users can ask questions and receive helpful financial guidance.
+JunieVest turns financial questions into specific, researched investment briefs: a direct call, evidence, an actionable approach, downside scenarios, and what would change the view. It keeps the conversation in context and asks focused questions when the request is too vague to answer usefully.
 
-## Features
+A question such as **“Should I invest in SpaceX today?”** goes straight to research. The agent checks current listing/access status, valuation, costs and catalysts, then gives a provisional **yes or no** with explicit assumptions. It does not hard-code SpaceX's status or a predetermined recommendation. “Help me invest” can instead trigger up to three clickable clarification questions.
 
-- **Conversational Interface**: Easy-to-use chat interface for asking financial questions
-- **Personalized Financial Advice**: Get guidance on budgeting, saving, investing, and more
-- **Real-time Responses**: Powered by OpenAI's GPT-4 through the OpenRouter API
-- **Friendly, Accessible Tone**: Financial concepts explained in plain language without jargon
+## Run locally
 
-## Project Overview
+Requires **Node 22.12+ (or Node 24+)** and npm.
 
-JunieVest is built with modern web technologies:
-
-- **Frontend**: React 19.1.0 with TypeScript
-- **Build Tool**: Vite 7.0.4
-- **Testing**: Vitest with React Testing Library
-- **API Integration**: OpenRouter API for AI-powered responses
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js (latest LTS version recommended)
-- npm or yarn
-- OpenRouter API key for AI responses
-
-### Installation
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/your-username/junie-vest.git
-   cd junie-vest
-   ```
-
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-3. Create a `.env` file in the project root with your OpenRouter API key:
-   ```
-   VITE_OPENROUTER_API_KEY=your_openrouter_api_key_here
-   ```
-
-### Available Scripts
-
-- **Development Server**:
-  ```bash
-  npm run dev
-  ```
-  Starts the development server at http://localhost:5173
-
-- **Build for Production**:
-  ```bash
-  npm run build
-  ```
-  Compiles TypeScript and builds the application for production
-
-- **Linting**:
-  ```bash
-  npm run lint
-  ```
-  Runs ESLint to check for code quality issues
-
-- **Preview Production Build**:
-  ```bash
-  npm run preview
-  ```
-  Serves the production build locally for testing
-
-- **Run Tests**:
-  ```bash
-  npm test          # Run tests in watch mode
-  npm run test:ui   # Run tests with UI interface
-  npm run test:run  # Run tests once and exit
-  ```
-
-## Project Structure
-
-```
-src/
-├── components/          # React components
-│   ├── ChatInterface.tsx  # Main chat interface component
-│   └── ChatMessage.tsx    # Individual message component
-├── services/            # Business logic and API calls
-│   └── chatService.ts     # Handles communication with OpenRouter API
-├── data/                # Static data
-│   └── mockResponses.json # Mock responses for testing
-├── test/                # Test utilities and setup
-│   └── setup.ts           # Test configuration
-├── App.tsx              # Main application component
-└── main.tsx             # Application entry point
+```sh
+npm ci
+cp .env.example .env
+# Fill in the three server settings below.
+npm run dev
 ```
 
-## Testing
+| Setting | Purpose |
+| --- | --- |
+| `OPENROUTER_API_KEY` | Server-side model access |
+| `OPENROUTER_MODEL` | An OpenRouter model ID supporting JSON object responses; choose a capable reasoning model in your account |
+| `TAVILY_API_KEY` | Fresh web searches for every substantive answer |
+| `PUBLIC_ORIGIN` | Optional exact external origin, such as `https://invest.example`, behind a reverse proxy |
+| `PORT` / `HOST` | Production listener; defaults to `3000` / `0.0.0.0` |
 
-The project uses Vitest with React Testing Library for component testing. Tests are configured in `vite.config.ts` and use the jsdom environment.
+Get credentials and model IDs from [OpenRouter](https://openrouter.ai/models) and [Tavily](https://docs.tavily.com/). The model is deliberately configurable so an aging model ID is not embedded in the app.
 
-To add new tests:
-1. Create test files with `.test.tsx` or `.test.ts` extension
-2. Place tests alongside source files or in the `src/test/` directory
-3. Import testing utilities:
-   ```typescript
-   import { render } from '@testing-library/react'
-   import { describe, it, expect } from 'vitest'
-   ```
+**Migration:** remove the old `VITE_OPENROUTER_API_KEY` setting and use `OPENROUTER_API_KEY`. `VITE_` variables are compiled into the public browser bundle; if an old build was published with a real key, rotate that key. No credentials are sent to the browser by the new API.
 
-## Environment Variables
+The UI reports setup status. Missing credentials, unavailable search, empty results and failed evidence checks produce actionable errors; they never fall back to canned answers or unresearched market claims.
 
-The application requires the following environment variables:
+## How the harness works
 
-- `VITE_OPENROUTER_API_KEY`: Your OpenRouter API key for accessing AI models
+1. **Plan or clarify.** Read the full conversation and optional investor context. Resolve follow-ups against the original task. Ask only for missing details that materially change the answer, or produce 2–3 complementary public research queries, including a current-week lookup.
+2. **Research.** Execute fresh Tavily searches server-side. Deduplicate URLs, reject unsafe link schemes, cap evidence size, and preserve source publication and retrieval dates separately. Search queries are instructed to omit private investor details.
+3. **Build the brief.** Generate a structured decision or analysis. A decision must have a yes/no verdict. Reasons and risks cite retrieved source IDs; the server attaches the actual source URLs. Limited evidence requires low confidence and cannot support “yes.” Sufficient evidence requires cited sources from at least two different hostnames (a diversity check, not proof of editorial independence).
+4. **Review.** A separate model pass checks whether citations support claims, dates are used honestly, the answer addresses the requested action, and the strategy accounts for material risks. It may request one revision, then rejects a brief that still fails. This is an additional model check, not a guarantee of factual accuracy.
+5. **Continue.** Structured clarification answers and complete briefs carry into subsequent turns. Failed/cancelled requests are retryable without duplicating user messages or polluting model history with error text.
 
-## Contributing
+Each JSON generation has at most one format/validation repair. There are at most 3 searches and 10 model requests per turn, including all repairs and the review revision. The HTTP request has a 120-second deadline, each provider call a 45-second timeout, and browser cancellation propagates upstream. There is no background or recursive agent loop.
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+Research uses web extracts, **not an exchange quote feed**. Retrieval today does not prove an article or price is current. Missing or conflicting price/access evidence must be surfaced as a limitation; the agent should withhold a buy call until it can support it. No trades are executed.
 
-## License
+## App and deployment
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+React 19 + TypeScript + Vite, with a Node HTTP API and Zod contracts. The same API middleware runs in development, preview and production.
+
+```sh
+npm run build
+npm start
+```
+
+The production server serves the built UI and `/api/chat` on the same origin. Static-only hosting is no longer sufficient: deploy the Node process with its `dist`, `dist-server`, production dependencies and server environment. `npm run preview` also includes the API for local checks.
+
+The server validates request sizes, limits requests per socket IP (12/minute, 2 concurrent), rejects browser requests from other origins, redacts upstream errors, and sets `no-store` on API responses. For a public multi-user deployment, put authentication and shared rate/budget enforcement at your gateway. The built-in limiter is process-local, does not trust forwarded IP headers, and will group users behind the same proxy.
+
+Conversations and optional investing context live in browser memory and reset on reload; a new brief retains the optional context. They are sent to OpenRouter for each turn. Public research queries are sent to Tavily. The app does not persist or log conversations. Provider retention policies still apply. History is bounded (40 messages / 60,000 total characters); when full, start a new brief rather than silently dropping prior constraints.
+
+## Validation
+
+```sh
+npm run test:run      # Harness, API, transport, and React behavior
+npm run lint
+npm run build
+npx playwright install chromium
+npm run test:e2e      # Desktop + mobile browser flows with synthetic API fixtures
+```
+
+Browser tests can use a preinstalled Chromium via `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`. Screenshots are saved to `AIR_ARTIFACTS_DIR` when set. Provider calls are mocked in automated tests; fixture briefs are synthetic, not investment advice.
+
+After setting real credentials, run the optional live regression cases (normal provider charges apply):
+
+```sh
+npm run build
+npm run eval:live
+```
+
+This checks vague requests, SpaceX yes/no routing, a creative AI strategy, prompt injection, and clarification memory. It writes a report to `AIR_ARTIFACTS_DIR` or `test-results`. Review those briefs for factual accuracy, freshness, citation support, suitability and practical value: passing a shape check is not enough. No live market output or provider latency is claimed by the offline test suite.
+
+Core implementation: `server/agent.ts` (orchestration), `server/prompts.ts` (policy), `server/http.ts` (API), `src/shared/agent.ts` (contracts), and `src/components/ResearchBrief.tsx` (brief and clarification UI).

@@ -1,133 +1,48 @@
+import {responseSchema, responseToText, type AgentResponse, type InvestorContext, type AgentRequest} from '../shared/agent';
+
 export interface ChatMessage {
     id: string;
     text: string;
     isUser: boolean;
     timestamp: Date;
-}
-
-interface OpenRouterResponse {
-    choices: Array<{
-        message: {
-            content: string;
-        };
-    }>;
+    response?: AgentResponse;
 }
 
 class ChatService {
-    private readonly apiKey: string;
-    private readonly baseUrl = 'https://openrouter.ai/api/v1';
-
-    constructor() {
-        this.apiKey = import.meta.env.VITE_OPENROUTER_API_KEY || '';
-        if (!this.apiKey) {
-            console.error('[ChatService] OpenRouter API key not found in environment variables');
-        }
-    }
-
-    // Main method to get bot response from OpenRouter API
-    async getBotResponse(userInput: string): Promise<string> {
-        if (!userInput.trim()) {
-            return "I'd be happy to help! Please ask me a question about budgeting, saving, investing, or any other personal finance topic.";
-        }
-
-        if (!this.apiKey) {
-            console.error('[ChatService] Cannot make API call: OpenRouter API key is missing');
-            throw new Error('API configuration error');
-        }
-
+    async getBotResponse(request: AgentRequest, signal?: AbortSignal): Promise<AgentResponse> {
+        let response: Response;
         try {
-            console.log('[ChatService] Making request to OpenRouter API...');
-
-            const response = await fetch(`${this.baseUrl}/chat/completions`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${this.apiKey}`,
-                    'Content-Type': 'application/json',
-                    'HTTP-Referer': window.location.origin,
-                    'X-Title': 'JunieVest - Personal Finance Assistant'
-                },
-                body: JSON.stringify({
-                    model: 'openai/gpt-4',
-                    messages: [
-                        {
-                            role: 'system',
-                            content: `You are Junie, and you're like that friend who happens to be one of the top wealth advisors in the country. You run a popular YouTube channel with the latest financial tips and have over 1M followers on X, but you're super down-to-earth and talk like you're just hanging out with a buddy. You explain money stuff in a way that actually makes sense - no fancy jargon or cookie-cutter advice. You're warm, encouraging, and genuinely excited to help people build wealth. Think of yourself as that friend who's made it big but still remembers where they came from and wants to lift everyone up with them. Keep it real, keep it friendly, and make complex financial concepts feel totally doable.
-
-Format your responses in Markdown so they are easy to scan:
-- Lead with a brief, direct answer and use short paragraphs separated by blank lines.
-- For longer answers, group related ideas under descriptive level-two or level-three headings (## or ###).
-- Use bullet lists for options or tips, and numbered lists for steps. Put each item on its own line.
-- Use bold sparingly to highlight key takeaways or important amounts.
-- Use tables only when they make comparisons clearer, and fenced code blocks for code examples.
-- Keep simple answers brief; do not force headings or lists when a short paragraph is enough.
-- Do not use raw HTML or wrap the entire response in a code fence.`
-                        },
-                        {
-                            role: 'user',
-                            content: userInput
-                        }
-                    ],
-                    temperature: 0.7
-                })
+            response = await fetch('/api/chat', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(request), signal,
             });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error('[ChatService] API request failed:', {
-                    status: response.status,
-                    statusText: response.statusText,
-                    error: errorText
-                });
-                throw new Error(`API request failed: ${response.status} ${response.statusText}`);
-            }
-
-            const data: OpenRouterResponse = await response.json();
-            console.log('[ChatService] API request successful');
-
-            if (!data.choices || data.choices.length === 0) {
-                console.error('[ChatService] No choices in API response:', data);
-                throw new Error('Invalid API response format');
-            }
-
-            const botResponse = data.choices[0].message.content;
-            if (!botResponse) {
-                console.error('[ChatService] Empty response content from API');
-                throw new Error('Empty response from API');
-            }
-
-            return botResponse;
-
         } catch (error) {
-            console.error('[ChatService] Error getting bot response:', error);
-
-            if (error instanceof Error) {
-                // Re-throw the error to be handled by the UI
-                throw error;
-            } else {
-                throw new Error('An unexpected error occurred while processing your request');
-            }
+            if (signal?.aborted) throw error;
+            throw new Error('Could not reach the research desk. Check your connection and retry.');
         }
+        const data: unknown = await response.json().catch(() => null);
+        if (!response.ok) {
+            const message = typeof data === 'object' && data !== null && 'error' in data && typeof data.error === 'string'
+                ? data.error : 'The research desk could not complete this brief. Please retry.';
+            throw new Error(message);
+        }
+        const parsed = responseSchema.safeParse(data);
+        if (!parsed.success) throw new Error('The research desk returned an incomplete brief. Please retry.');
+        return parsed.data;
     }
 
-    // Generate unique message ID
-    generateMessageId(): string {
-        return Date.now().toString() + Math.random().toString(36).substr(2, 9);
+    createRequest(messages: ChatMessage[], context: InvestorContext): AgentRequest {
+        return {messages: messages.map(message => ({
+            role: message.isUser ? 'user' : 'assistant', content: message.text,
+        })), context};
     }
 
-    // Create a new chat message
     createMessage(text: string, isUser: boolean): ChatMessage {
-        return {
-            id: this.generateMessageId(),
-            text,
-            isUser,
-            timestamp: new Date()
-        };
+        return {id: crypto.randomUUID(), text, isUser, timestamp: new Date()};
     }
 
-    // Get welcome message
-    getWelcomeMessage(): ChatMessage {
-        const welcomeText = "Hey there! 👋 I'm Junie, your personal finance sidekick.\n\nI can help with **budgeting, investing, saving strategies**, or breaking down confusing money topics into clear next steps.\n\n**What's on your mind?**";
-        return this.createMessage(welcomeText, false);
+    createResponse(response: AgentResponse): ChatMessage {
+        return {...this.createMessage(responseToText(response), false), response};
     }
 }
 
