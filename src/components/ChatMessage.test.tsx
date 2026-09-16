@@ -2,14 +2,15 @@ import {render, screen, within} from '@testing-library/react';
 import {describe, expect, it} from 'vitest';
 import ChatMessage from './ChatMessage';
 
-const unstructuredAnswer = [
+const sentences = [
     'Start with a clear picture of your monthly income and spending so you can choose a realistic next step.',
     'Write down your regular bills, flexible expenses, and the amount you want to set aside for future goals.',
     'Keep a small cushion for unexpected costs instead of committing every dollar before the month begins.',
     'If an account shows a 3.5% rate, compare its fees and access rules before deciding whether it suits your needs.',
     'Review the plan at the end of the month and adjust the categories that did not match your actual spending.',
     'Choose one manageable action today, then revisit your progress when your next paycheck arrives.'
-].join(' ');
+];
+const unstructuredAnswer = sentences.join(' ');
 
 const renderMessage = (text: string, isUser = false) => render(
     <ChatMessage message={{id: 'message-1', text, isUser, timestamp: new Date('2026-09-16T12:00:00Z')}}/>
@@ -37,6 +38,44 @@ describe('ChatMessage', () => {
         expect(screen.getByText('clear picture').tagName).toBe('STRONG');
         expect(screen.getByRole('link', {name: '3.5% rate'})).toHaveAttribute('href', 'https://example.com/rates?value=3.5');
         expect(screen.getByText('one manageable action').tagName).toBe('CODE');
+    });
+
+    it('does not break inside emphasis that spans a sentence boundary', () => {
+        const emphasised = sentences[1] + ' ' + sentences[2];
+        const {container} = renderMessage([sentences[0], '**' + emphasised + '**', ...sentences.slice(3)].join(' '));
+
+        const paragraphs = [...container.querySelectorAll('.message-markdown > p')];
+        expect(paragraphs.length).toBeGreaterThan(1);
+        expect(paragraphs.map(paragraph => paragraph.textContent).join('')).toBe(unstructuredAnswer);
+        const strong = container.querySelectorAll('.message-markdown strong');
+        expect(strong).toHaveLength(1);
+        expect(strong[0].textContent).toBe(emphasised);
+    });
+
+    it('never splits a paragraph in the middle of a sentence, even when it is long', () => {
+        const singleSentence = 'Before you pick an account, compare the interest rate, the monthly fee, the minimum balance, '
+            + 'the number of free withdrawals, the time it takes to move money back to checking, whether deposits are insured, '
+            + 'how often the rate has changed over the past year, and whether the same bank offers a checking account '
+            + 'that would let you keep everything in one place without paying transfer fees';
+        expect(singleSentence.length).toBeGreaterThan(360);
+
+        const {container} = renderMessage(singleSentence);
+
+        const paragraphs = [...container.querySelectorAll('.message-markdown > p')];
+        expect(paragraphs).toHaveLength(1);
+        expect(paragraphs[0].textContent).toBe(singleSentence);
+    });
+
+    it('keeps line breaks and images in place while splitting long prose', () => {
+        const {container} = renderMessage(sentences[0] + ' ' + sentences[1] + '  \n' + sentences.slice(2).join(' ')
+            + ' ![Savings chart](https://example.com/chart.png)');
+
+        const paragraphs = [...container.querySelectorAll('.message-markdown > p')];
+        expect(paragraphs.length).toBeGreaterThan(1);
+        expect(paragraphs.map(paragraph => paragraph.textContent).join(''))
+            .toBe(sentences[0] + ' ' + sentences[1] + '\n' + sentences.slice(2).join(' ') + ' ');
+        expect(container.querySelectorAll('.message-markdown br')).toHaveLength(1);
+        expect(screen.getByRole('img', {name: 'Savings chart'}).closest('p')).toBe(paragraphs[paragraphs.length - 1]);
     });
 
     it('leaves long list items, quotations, and code blocks intact', () => {
