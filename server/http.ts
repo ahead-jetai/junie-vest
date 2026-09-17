@@ -1,7 +1,7 @@
 import type {IncomingMessage, ServerResponse} from 'node:http';
 import {AgentError, runAgent, type AgentConfig} from './agent.ts';
 import type {AgentRequest} from '../src/shared/agent.ts';
-import {AGENT_TIMEOUT_MS, DEFAULT_MODEL_TIMEOUT_MS} from '../src/shared/timeouts.ts';
+import {QUICK_TIMEOUT_MS, DEFAULT_MODEL_TIMEOUT_MS, turnTimeoutMs} from '../src/shared/timeouts.ts';
 
 function integerSetting(env: Record<string, string | undefined>, name: string, fallback: number, min: number, max: number): number {
     if (!env[name]?.trim()) return fallback;
@@ -21,6 +21,7 @@ export function configFromEnv(env: Record<string, string | undefined>): AgentCon
         openRouterKey: env.OPENROUTER_API_KEY || '',
         searchKey: env.TAVILY_API_KEY || '',
         model: env.OPENROUTER_MODEL || '',
+        fastModel: env.OPENROUTER_FAST_MODEL?.trim() || '',
         modelTimeoutMs: integerSetting(env, 'OPENROUTER_TIMEOUT_MS', DEFAULT_MODEL_TIMEOUT_MS, 1000, 300000),
         maxCompletionTokens: integerSetting(env, 'OPENROUTER_MAX_TOKENS', 12000, 1000, 32000),
         reasoningEffort: effort,
@@ -74,7 +75,7 @@ export function createApiHandler(config: AgentConfig, options: {
         const path = req.url?.split('?')[0];
         if (!path?.startsWith('/api/')) return next();
         if (path === '/api/health' && req.method === 'GET') {
-            return sendJson(res, 200, {configured: Boolean(config.openRouterKey && config.searchKey && config.model)});
+            return sendJson(res, 200, {configured: Boolean(config.openRouterKey && config.searchKey && (config.fastModel || config.model))});
         }
         if (path !== '/api/chat') return sendJson(res, 404, {error: 'Unknown endpoint.', code: 'not_found'});
         if (req.method !== 'POST') {
@@ -108,16 +109,27 @@ export function createApiHandler(config: AgentConfig, options: {
         client.active++;
         clients.set(key, client);
         const controller = new AbortController();
-        const timeout = setTimeout(() => {
+        const started = performance.now();
+        const timings = new Map<string, number>();
+        const timeOut = () => {
             controller.abort();
             sendJson(res, 504, {error: 'Research took too long. Please retry.', code: 'timeout'});
-        }, AGENT_TIMEOUT_MS);
+        };
+        let timeout = setTimeout(timeOut, QUICK_TIMEOUT_MS);
         const onClose = () => controller.abort();
         res.on('close', onClose);
         try {
             const request = await readJson(req);
             if (controller.signal.aborted) return;
-            const response = await (options.agent || runAgent)(request as AgentRequest, config, controller.signal);
+            const mode = typeof request === 'object' && request !== null && 'mode' in request && request.mode === 'deep' ? 'deep' : 'quick';
+            clearTimeout(timeout);
+            timeout = setTimeout(timeOut, Math.max(1, turnTimeoutMs(mode) - (performance.now() - started)));
+            const response = await (options.agent || runAgent)(request as AgentRequest, config, controller.signal, {
+                fetch: globalThis.fetch, now: () => new Date(),
+                recordTiming: (stage, duration) => timings.set(stage, (timings.get(stage) || 0) + duration),
+            });
+            timings.set('total', performance.now() - started);
+            if (!res.headersSent && !res.destroyed) res.setHeader('Server-Timing', [...timings].map(([stage, duration]) => `${stage};dur=${duration.toFixed(1)}`).join(', '));
             sendJson(res, 200, response);
         } catch (error) {
             if (!controller.signal.aborted) {

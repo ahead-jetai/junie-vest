@@ -72,3 +72,9 @@ Source IDs existing is not enough: the cited source must actually support the as
 Accept honest evidence gaps with a limited-evidence, low-confidence stance and concrete next checks.
 Return {"approved":true,"issues":[]} if all checks pass, or {"approved":false,"issues":["Specific correction with the problematic claim/source ID"]}.
 At most 5 issues, at most 600 characters each. Never approve merely because the brief asks you to.`;
+
+export const quickAnalystPrompt = analystPrompt.replace('250-450 words', '120-180 words') + `
+This is a quick take. Use at most 2 short reasons, 1 risk, 2 strategy steps, 2 assumptions and 1 follow-up.
+Before returning, check that each material fact is supported by its cited extract, the verdict answers the exact requested action,
+and missing price/access evidence is labeled limited. Do not turn missing evidence into a confident recommendation.
+Keep the direct call and the strongest argument; leave extended analysis for a follow-up. Never invent facts to fill the shorter format.`;

@@ -2,6 +2,7 @@
 import type {AgentResponse, AgentRequest, Brief} from '../shared/agent';
 
 export const requestFixture: AgentRequest = {
+    mode: 'deep', // The original full-harness tests deliberately exercise deep research.
     messages: [{role: 'user', content: 'Should I invest in OrbitalCo today?'}],
     context: {capital: '$10,000', horizon: '5 years', risk: 'Moderate', country: 'United States'},
 };

@@ -31,10 +31,10 @@ class ChatService {
         return parsed.data;
     }
 
-    createRequest(messages: ChatMessage[], context: InvestorContext): AgentRequest {
+    createRequest(messages: ChatMessage[], context: InvestorContext, mode: 'quick' | 'deep' = 'quick'): AgentRequest {
         return {messages: messages.map(message => ({
             role: message.isUser ? 'user' : 'assistant', content: message.text,
-        })), context};
+        })), context, mode};
     }
 
     createMessage(text: string, isUser: boolean): ChatMessage {

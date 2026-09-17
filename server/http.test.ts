@@ -43,6 +43,7 @@ describe('server API boundary', () => {
         expect(configFromEnv({VITE_OPENROUTER_API_KEY: 'unsafe'}).openRouterKey).toBe('');
         const response = await post(url);
         expect(await response.json()).toEqual(clarificationFixture);
+        expect(response.headers.get('server-timing')).toMatch(/total;dur=\d+/);
     });
 
     it('rejects malformed, oversized, cross-origin, and non-JSON requests before invoking the agent', async () => {

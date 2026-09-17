@@ -8,6 +8,7 @@ test('welcome desk fits the viewport and exposes investing context', async ({pag
     await expect(page).toHaveTitle('JunieVest — The Research Desk');
     await expect(page.getByRole('heading', {name: /Don’t just follow/})).toBeVisible();
     await expect(page.getByRole('textbox', {name: 'Your investment question'})).toBeVisible();
+    await expect(page.getByRole('button', {name: 'Quick take', exact: true})).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByRole('heading', {name: /Don’t just follow/})).toBeInViewport();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     if (process.env.AIR_ARTIFACTS_DIR) {
@@ -52,16 +53,21 @@ test('clarification becomes a sourced decision and a contextual follow-up', asyn
 
 test('research failures are retryable without duplicated questions', async ({page}) => {
     let count = 0;
+    const modes: string[] = [];
     await page.route('**/api/chat', route => {
         count++;
+        modes.push(route.request().postDataJSON().mode);
         return route.fulfill(count === 1
             ? {status: 502, json: {error: 'Current research is unavailable. No investment call was made. Please retry.'}}
             : {json: responseFixture});
     });
     await page.goto('/');
+    await page.getByRole('button', {name: 'Deep research', exact: true}).click();
     await page.getByRole('button', {name: /Should I invest in SpaceX today/}).click();
     await expect(page.getByRole('alert')).toContainText('No investment call was made.');
+    await page.getByRole('button', {name: 'Quick take', exact: true}).click();
     await page.getByRole('button', {name: /Retry brief/}).click();
     await expect(page.getByText('NO / THE CALL')).toBeVisible();
     await expect(page.getByText('Should I invest in SpaceX today?', {exact: true})).toHaveCount(1);
+    expect(modes).toEqual(['deep', 'deep']);
 });

@@ -130,3 +130,8 @@
 .mobile-reset .ui-icon { width: 16px; height: 16px; }
 .request-error .ui-icon, .primary-button .ui-icon, .follow-ups .ui-icon, .sources-panel .ui-icon { width: 13px; height: 13px; margin-left: 6px; }
 .desk-method .ui-icon { width: 12px; height: 12px; transform: rotate(45deg); }
+.research-mode { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.research-mode button { border: 1px solid #35412f; border-radius: 5px; padding: 7px 10px; background: transparent; color: #9cab92; font-size: 11px; }
+.research-mode button[aria-pressed='true'] { background: #27351f; border-color: #78985c; color: var(--accent); }
+.research-mode > span { margin-left: auto; font-size: 10px; color: var(--muted); }
+@media (max-width: 600px) { .research-mode > span { font-size: 9px; margin-left: 5px; } }

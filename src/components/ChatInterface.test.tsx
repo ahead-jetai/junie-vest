@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import ChatInterface from './ChatInterface';
 import {clarificationFixture, responseFixture} from '../test/fixtures';
-import {AGENT_TIMEOUT_MS} from '../shared/timeouts';
+import {AGENT_TIMEOUT_MS, clientTimeoutMs} from '../shared/timeouts';
 
 const mockFetch = vi.fn();
 beforeEach(() => {
@@ -14,6 +14,37 @@ afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 const chatCalls = () => mockFetch.mock.calls.filter(([url]) => url === '/api/chat');
 
 describe('research desk conversation', () => {
+    it('defaults to Quick take and cancels a stuck connection after its short deadline', async () => {
+        vi.useFakeTimers();
+        mockFetch.mockImplementation((url: string, options?: RequestInit) => url === '/api/health'
+            ? Promise.resolve(new Response('{"configured":true}'))
+            : new Promise<Response>((_resolve, reject) => {
+                options?.signal?.addEventListener('abort', () => reject(new Error('aborted')), {once: true});
+            }));
+        render(<ChatInterface/>);
+        expect(screen.getByRole('button', {name: 'Quick take'})).toHaveAttribute('aria-pressed', 'true');
+        fireEvent.click(screen.getByRole('button', {name: /Should I invest in SpaceX today/}));
+        expect(JSON.parse(chatCalls()[0][1].body).mode).toBe('quick');
+        const signal = chatCalls()[0][1].signal as AbortSignal;
+        await act(async () => { await vi.advanceTimersByTimeAsync(clientTimeoutMs() - 1); });
+        expect(signal.aborted).toBe(false);
+        await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+        expect(signal.aborted).toBe(true);
+        expect(screen.getByRole('alert')).toBeInTheDocument();
+        expect(screen.getByRole('button', {name: /Retry brief/})).toBeEnabled();
+    });
+
+    it('does not treat a local clarification as proof that providers are configured', async () => {
+        mockFetch.mockImplementation((url: string) => Promise.resolve(new Response(JSON.stringify(
+            url === '/api/health' ? {configured: false} : clarificationFixture,
+        ))));
+        const user = userEvent.setup();
+        render(<ChatInterface/>);
+        await user.type(screen.getByLabelText('Your investment question'), 'Help me invest.{Enter}');
+        await screen.findByRole('region', {name: 'Clarifying questions'});
+        expect(screen.queryByText('Research configured')).not.toBeInTheDocument();
+    });
+
     it('keeps a slow reasoning request alive long enough to show the server timeout error', async () => {
         vi.useFakeTimers();
         let finish: (response: Response) => void = () => {};
@@ -24,6 +55,7 @@ describe('research desk conversation', () => {
                 options?.signal?.addEventListener('abort', () => reject(new Error('aborted')), {once: true});
             }));
         render(<ChatInterface/>);
+        fireEvent.click(screen.getByRole('button', {name: 'Deep research'}));
         fireEvent.change(screen.getByRole('textbox', {name: 'Your investment question'}), {target: {value: 'Should I invest today?'}});
         fireEvent.click(screen.getByRole('button', {name: 'Send message'}));
         const signal = chatCalls()[0][1].signal as AbortSignal;

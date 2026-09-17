@@ -12,6 +12,7 @@ export const contextSchema = z.object({
 export type InvestorContext = z.infer<typeof contextSchema>;
 
 export const requestSchema = z.object({
+    mode: z.enum(['quick', 'deep']).optional(),
     messages: z.array(z.object({
         role: z.enum(['user', 'assistant']),
         content: z.string().trim().min(1).max(16000),

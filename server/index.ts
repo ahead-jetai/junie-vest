@@ -36,5 +36,5 @@ const server = createServer((req, res) => {
 });
 server.requestTimeout = CLIENT_TIMEOUT_MS;
 server.listen(Number(process.env.PORT || 3000), process.env.HOST || '0.0.0.0', () => {
-    console.info(`JunieVest listening on port ${process.env.PORT || 3000}. Research ${config.openRouterKey && config.searchKey && config.model ? 'connected' : 'not configured'}.`);
+    console.info(`JunieVest listening on port ${process.env.PORT || 3000}. Research ${config.openRouterKey && config.searchKey && (config.fastModel || config.model) ? 'connected' : 'not configured'}.`);
 });

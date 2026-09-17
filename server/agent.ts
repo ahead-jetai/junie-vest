@@ -3,8 +3,9 @@ import {
     briefSchema, clarificationSchema, requestSchema, responseSchema, safeUrl,
     type AgentRequest, type AgentResponse, type Source,
 } from '../src/shared/agent.ts';
-import {analystPrompt, plannerPrompt, reviewPrompt} from './prompts.ts';
-import {DEFAULT_MODEL_TIMEOUT_MS, SEARCH_TIMEOUT_MS} from '../src/shared/timeouts.ts';
+import {analystPrompt, plannerPrompt, reviewPrompt, quickAnalystPrompt} from './prompts.ts';
+import {DEFAULT_MODEL_TIMEOUT_MS, SEARCH_TIMEOUT_MS, QUICK_MODEL_TIMEOUT_MS, QUICK_SEARCH_TIMEOUT_MS} from '../src/shared/timeouts.ts';
+import {quickPlan} from './quickPlan.ts';
 
 export class AgentError extends Error {
     status: number;
@@ -22,11 +23,20 @@ export interface AgentConfig {
     model: string;
     modelTimeoutMs?: number;
     maxCompletionTokens?: number;
-    reasoningEffort?: 'low' | 'medium' | 'high' | 'provider';
+    reasoningEffort?: 'none' | 'low' | 'medium' | 'high' | 'provider';
+    fastModel?: string;
+    preferLowLatency?: boolean;
 }
 export interface Dependencies {
     fetch: typeof fetch;
     now: () => Date;
+    recordTiming?: (stage: 'plan' | 'search' | 'answer' | 'review', durationMs: number) => void;
+}
+
+async function timed<T>(stage: Parameters<NonNullable<Dependencies['recordTiming']>>[0], action: () => Promise<T>, deps: Dependencies) {
+    const started = performance.now();
+    try { return await action(); }
+    finally { deps.recordTiming?.(stage, performance.now() - started); }
 }
 
 const researchPlanSchema = z.object({
@@ -121,19 +131,20 @@ async function postJson(url: string, body: unknown, headers: Record<string, stri
 }
 
 async function modelJson<T>(prompt: string, input: unknown, schema: z.ZodType<T>, config: AgentConfig,
-    signal: AbortSignal, deps: Dependencies): Promise<T> {
+    signal: AbortSignal, deps: Dependencies, attempts = 2): Promise<T> {
     const messages = [
         {role: 'system', content: prompt},
         {role: 'user', content: JSON.stringify(input)},
     ];
     // One bounded repair, including semantic validation errors; no unbounded agent loops.
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt < attempts; attempt++) {
         const effort = config.reasoningEffort ?? 'low';
         const raw = await postJson('https://openrouter.ai/api/v1/chat/completions', {
             model: config.model, messages, temperature: 0.3, stream: false,
             // Reasoning models share this budget between reasoning and final answer tokens.
             max_tokens: config.maxCompletionTokens ?? 12000,
             ...(effort === 'provider' ? {} : {reasoning: {effort}}),
+            ...(config.preferLowLatency ? {provider: {sort: 'latency'}} : {}),
             response_format: {type: 'json_object'},
         }, {Authorization: `Bearer ${config.openRouterKey}`, 'X-Title': 'JunieVest Research Desk', Accept: 'application/json'},
         signal, deps, 'model', config.modelTimeoutMs ?? DEFAULT_MODEL_TIMEOUT_MS);
@@ -164,15 +175,19 @@ async function modelJson<T>(prompt: string, input: unknown, schema: z.ZodType<T>
 }
 
 async function research(plan: z.infer<typeof researchPlanSchema>, config: AgentConfig, signal: AbortSignal,
-    deps: Dependencies): Promise<Evidence[]> {
+    deps: Dependencies, quick = false): Promise<Evidence[]> {
     const now = deps.now().toISOString();
-    const searches = await Promise.all(plan.queries.map(async query => {
+    // Preserve the required recent lookup even when the planner puts it last.
+    const recent = plan.queries.find(query => query.recency === 'week')!;
+    const complementary = plan.queries.find(query => query.recency !== 'week') || plan.queries.find(query => query !== recent)!;
+    const queries = quick ? [recent, complementary] : plan.queries;
+    const searches = await Promise.all(queries.map(async query => {
         const raw = await postJson('https://api.tavily.com/search', {
             query: `${query.query} (as of ${now.slice(0, 10)})`,
-            topic: 'general', search_depth: 'advanced', max_results: 5,
+            topic: 'general', search_depth: quick ? 'fast' : 'advanced', max_results: quick ? 3 : 5,
             include_answer: false, include_raw_content: false,
             ...(query.recency !== 'any' ? {time_range: query.recency} : {}),
-        }, {Authorization: `Bearer ${config.searchKey}`}, signal, deps, 'research');
+        }, {Authorization: `Bearer ${config.searchKey}`}, signal, deps, 'research', quick ? QUICK_SEARCH_TIMEOUT_MS : SEARCH_TIMEOUT_MS);
         const parsed = searchResponseSchema.safeParse(raw);
         if (!parsed.success) throw new AgentError(502, 'research_invalid', 'Current research could not be verified. Please retry.');
         return parsed.data.results;
@@ -180,7 +195,7 @@ async function research(plan: z.infer<typeof researchPlanSchema>, config: AgentC
     const sources: Evidence[] = [];
     const urls = new Set<string>();
     // Round-robin so a fundamentals search cannot crowd out the recent-news search (or vice versa).
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < (quick ? 3 : 5); i++) {
         for (const results of searches) {
             const result = results[i];
             if (!result || !safeUrl.safeParse(result.url).success || !result.content.trim() || !result.title.trim()) continue;
@@ -189,12 +204,12 @@ async function research(plan: z.infer<typeof researchPlanSchema>, config: AgentC
             for (const key of [...url.searchParams.keys()]) {
                 if (key.startsWith('utm_')) url.searchParams.delete(key);
             }
-            if (urls.has(url.href) || sources.length >= 12) continue;
+            if (urls.has(url.href) || sources.length >= (quick ? 6 : 12)) continue;
             urls.add(url.href);
             sources.push({
                 id: `S${sources.length + 1}`, title: result.title.slice(0, 600), url: url.href,
                 publishedAt: result.published_date?.slice(0, 100) || null, retrievedAt: now,
-                content: result.content.slice(0, 2200),
+                content: result.content.slice(0, quick ? 1000 : 2200),
             });
         }
     }
@@ -206,15 +221,23 @@ export async function runAgent(input: AgentRequest, config: AgentConfig, signal:
     deps: Dependencies = {fetch: globalThis.fetch, now: () => new Date()}): Promise<AgentResponse> {
     const parsed = requestSchema.safeParse(input);
     if (!parsed.success) throw new AgentError(400, 'invalid_request', 'Check your message length, or start a new brief if this conversation is full.');
-    if (!config.openRouterKey || !config.model || !config.searchKey) {
+    const request = parsed.data;
+    const quick = request.mode !== 'deep';
+    const localPlan = quick ? quickPlan(request) : undefined;
+    if (localPlan?.kind === 'clarification') return localPlan;
+    const activeConfig: AgentConfig = quick ? {
+        ...config, model: config.fastModel || config.model, reasoningEffort: 'none',
+        maxCompletionTokens: 1800, modelTimeoutMs: QUICK_MODEL_TIMEOUT_MS, preferLowLatency: true,
+    } : config;
+    if (!activeConfig.openRouterKey || !activeConfig.model || !activeConfig.searchKey) {
         throw new AgentError(503, 'not_configured', 'The research desk is not connected yet. Please try again after setup is complete.');
     }
-    const request = parsed.data;
-    const plan = await modelJson(plannerPrompt, {today: deps.now().toISOString(), ...request}, planSchema, config, signal, deps);
+    const plan = localPlan || await timed('plan', () => modelJson(plannerPrompt, {today: deps.now().toISOString(), ...request}, planSchema,
+        quick ? {...activeConfig, maxCompletionTokens: 1000, modelTimeoutMs: 5000} : activeConfig, signal, deps, quick ? 1 : 2), deps);
     if (plan.kind === 'clarification') return plan;
 
     // There is deliberately no model-only fallback: every substantive response goes through fresh search.
-    const evidence = await research(plan, config, signal, deps);
+    const evidence = await timed('search', () => research(plan, activeConfig, signal, deps, quick), deps);
     const ids = new Set(evidence.map(source => source.id));
     const groundedBriefSchema = briefSchema.superRefine((brief, ctx) => {
         if (brief.kind !== plan.intent) ctx.addIssue({code: 'custom', message: `The requested intent requires kind ${plan.intent}.`});
@@ -229,13 +252,13 @@ export async function runAgent(input: AgentRequest, config: AgentConfig, signal:
         today: deps.now().toISOString(), ...request, task: plan.task, intent: plan.intent,
         evidence, researchNote: 'Fresh web search extracts. Not a live quote feed. A missing publication date means unknown freshness.',
     };
-    let brief = await modelJson(analystPrompt, analysisInput, groundedBriefSchema, config, signal, deps);
-    for (let attempt = 0; attempt < 2; attempt++) {
-        const review = await modelJson(reviewPrompt, {...analysisInput, brief}, reviewSchema, config, signal, deps);
+    let brief = await timed('answer', () => modelJson(quick ? quickAnalystPrompt : analystPrompt, analysisInput, groundedBriefSchema, activeConfig, signal, deps), deps);
+    for (let attempt = 0; !quick && attempt < 2; attempt++) {
+        const review = await timed('review', () => modelJson(reviewPrompt, {...analysisInput, brief}, reviewSchema, activeConfig, signal, deps), deps);
         if (review.approved) break;
         if (attempt === 1) throw new AgentError(502, 'evidence_check_failed', 'The brief needs stronger evidence before a call can be made. Try narrowing the question or retry research.');
-        brief = await modelJson(analystPrompt, {...analysisInput, previousBrief: brief, requiredCorrections: review.issues},
-            groundedBriefSchema, config, signal, deps);
+        brief = await timed('answer', () => modelJson(analystPrompt, {...analysisInput, previousBrief: brief, requiredCorrections: review.issues},
+            groundedBriefSchema, activeConfig, signal, deps), deps);
     }
     const cited = new Set([...brief.reasons, ...brief.risks].flatMap(claim => claim.sourceIds));
     const sources = evidence.filter(source => cited.has(source.id)).map(({id, title, url, publishedAt, retrievedAt}) =>

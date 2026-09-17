@@ -1,7 +1,7 @@
 import {useState, useEffect, useRef} from 'react';
 import {type ChatMessage as ChatMessageType, chatService} from '../services/chatService';
 import type {AgentRequest, InvestorContext} from '../shared/agent';
-import {CLIENT_TIMEOUT_MS} from '../shared/timeouts';
+import {clientTimeoutMs} from '../shared/timeouts';
 import ChatMessage from './ChatMessage';
 import {ArrowIcon, PlusIcon} from './Icons';
 import './ChatInterface.css';
@@ -15,6 +15,8 @@ const emptyContext: InvestorContext = {capital: '', horizon: '', risk: '', count
 
 export default function ChatInterface() {
     const [messages, setMessages] = useState<ChatMessageType[]>([]);
+    const [mode, setMode] = useState<'quick' | 'deep'>('quick');
+    const [activeMode, setActiveMode] = useState<'quick' | 'deep'>('quick');
     const [inputValue, setInputValue] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [context, setContext] = useState<InvestorContext>(emptyContext);
@@ -52,14 +54,15 @@ export default function ChatInterface() {
         activeRequest.current = controller;
         const currentGeneration = ++generation.current;
         setIsLoading(true);
+        setActiveMode(request.mode || 'quick');
         setError('');
         setFailedRequest(null);
-        const timeout = setTimeout(() => controller.abort('timeout'), CLIENT_TIMEOUT_MS);
+        const timeout = setTimeout(() => controller.abort('timeout'), clientTimeoutMs(request.mode));
         try {
             const response = await chatService.getBotResponse(request, controller.signal);
             if (currentGeneration === generation.current && !controller.signal.aborted) {
                 setMessages(previous => [...previous, chatService.createResponse(response)]);
-                setConfigured(true);
+                if (response.kind !== 'clarification') setConfigured(true);
                 setConnectionFailed(false);
             }
         } catch (cause) {
@@ -83,7 +86,7 @@ export default function ChatInterface() {
         const next = [...messages, chatService.createMessage(text.trim(), true)];
         setMessages(next);
         setInputValue('');
-        void runRequest(chatService.createRequest(next, {...context}));
+        void runRequest(chatService.createRequest(next, {...context}, mode));
     }
 
     function reset() {
@@ -143,7 +146,9 @@ export default function ChatInterface() {
                 {messages.map((message, index) => <ChatMessage key={message.id} message={message} onFollowUp={send}
                     disabled={isLoading || index !== messages.length - 1}/>)}
                 {isLoading && <div className="research-progress" role="status"><span className="research-spinner"/>
-                    <div><strong>Preparing your brief</strong><p>Reading your context, then checking current evidence. Reasoning models can take a few minutes; you can stop at any time.</p></div>
+                    <div><strong>Preparing your brief</strong><p>{activeMode === 'quick'
+                        ? 'Checking fresh sources for a concise call.'
+                        : 'Broader research and a second review. This can take a few minutes; you can stop at any time.'}</p></div>
                     <button onClick={() => activeRequest.current?.abort('cancelled')}>Stop</button>
                 </div>}
                 {error && <div className="request-error" role="alert"><p>{error}</p>
@@ -152,6 +157,11 @@ export default function ChatInterface() {
                 <div ref={messagesEndRef}/>
             </div>
             <div className="chat-input-container">
+                <div className="research-mode" role="group" aria-label="Research depth">
+                    <button type="button" aria-pressed={mode === 'quick'} disabled={isLoading} onClick={() => setMode('quick')}>Quick take</button>
+                    <button type="button" aria-pressed={mode === 'deep'} disabled={isLoading} onClick={() => setMode('deep')}>Deep research</button>
+                    <span>{mode === 'quick' ? 'Concise call · fresh sources' : 'More sources · second review · takes longer'}</span>
+                </div>
                 {configured === false && <p className="setup-note">The research desk needs to be connected before it can build a brief.</p>}
                 <form className="chat-input-wrapper" onSubmit={event => { event.preventDefault(); send(inputValue); }}>
                     <label className="sr-only" htmlFor="message-input">Your investment question</label>
